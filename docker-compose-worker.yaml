@@ -1,0 +1,16 @@
+version: "3.9"
+
+services:
+  worker:
+    build:
+      context: ./src/worker
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      MASTER_URL: "http://master:8000"
+      PYTHONUNBUFFERED: no
+    volumes:
+      - type: bind
+        source: ./src/worker
+        target: /app
+        read_only: true

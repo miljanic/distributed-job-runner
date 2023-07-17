@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  master:
+    build:
+      context: ./src/master
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PYTHONUNBUFFERED: no
+    volumes:
+      - type: bind
+        source: ./src/master
+        target: /app
+        read_only: true
+    command:
+      - --reload
