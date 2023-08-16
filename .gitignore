@@ -283,3 +283,4 @@ tags
 [._]*.un~
 
 # End of https://www.toptal.com/developers/gitignore/api/python,intellij+all,vim
+.DS_Store

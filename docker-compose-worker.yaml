@@ -14,3 +14,6 @@ services:
         source: ./src/worker
         target: /app
         read_only: true
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock

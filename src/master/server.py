@@ -1,3 +1,4 @@
+import json
 from random import randint
 
 import socketio
@@ -22,7 +23,21 @@ async def logs_message(sid, data) -> None:
 async def job_poll(sid) -> None:
     print("Job poll")
     job_id = randint(1000, 9999)  # nosec
-    await sio.emit("new_job", f"job-{job_id}")
+    await sio.emit(
+        "new_job",
+        json.dumps(
+            {
+                "job_id": job_id,
+                "run_type": "DOCKER",  # HOST or DOCKER
+                "command": f"""
+            #!/usr/bin/env bash"
+            echo "Echo from the job {job_id}"
+            sleep 2
+            echo "second output from the job {job_id}"
+            """,
+            }
+        ),
+    )
 
 
 @sio.event
