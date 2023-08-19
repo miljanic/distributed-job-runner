@@ -212,14 +212,14 @@ def work(job: Job) -> None:
     loop.run_until_complete(__execute())
 
 
-def finished_callback(job_id: str) -> callable:
+def finished_callback(job_id: str, futures: dict[str, Future]) -> callable:
     def callback(fn) -> None:
-        # TODO should be removed from the futures dict also
         print(f"JOBS: {jobs}")
         print(f"JOB_ID: {job_id}")
 
         index = next((i for i, job in enumerate(jobs) if job.job_id == job_id), -1)
         del jobs[index]
+        del futures[job_id]
         print(f"Job {job_id} done, or failed.")
 
     return callback
@@ -239,7 +239,7 @@ async def job_worker_initializer() -> None:
         print(f"NEW {new_jobs}")
         futures.update(new_jobs)
         for job_id, future in new_jobs.items():
-            future.add_done_callback(finished_callback(job_id=job_id))
+            future.add_done_callback(finished_callback(job_id=job_id, futures=futures))
 
         await asyncio.sleep(3)
 
