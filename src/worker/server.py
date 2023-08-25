@@ -119,8 +119,7 @@ class DockerJob(Job):
         return self.__is_run_finished() and self.__logs_streamed
 
     def return_code(self):
-        # TODO fetch return code
-        return 123
+        return self.__container.wait()["StatusCode"]
 
     def __save_logs(self):
         for line in self.__container.logs(timestamps=True, stream=True):
