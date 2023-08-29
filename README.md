@@ -37,6 +37,8 @@ Docker must be installed and started on the host machine.
 
 ### Run Central Platform
 ```shell
+; cp .env.master.example .env.master
+# edit .env.master.docker
 ; docker compose -f docker-compose-master.yaml up -d
 ```
 This will run all necessary services (api, frontend, and master).
@@ -50,10 +52,12 @@ There are two options for running Workers:
 1. On a host machine
 2. In a Docker container
 
-Running them in the Docker container is more convenient and easier to setup, however it sets a limitations in a way that Job can be ran. When running the Worker in a Docker container it is not possible to run Jobs on a host machine, making it less suitable for Job requiring access to the specific hardware of the host.
+Running them in the Docker container is more convenient and easier to set up, however it sets a limitations in a way that Job can be ran. When running the Worker in a Docker container it is not possible to run Jobs on a host machine, making it less suitable for Job requiring access to the specific hardware of the host.
 
 #### Worker in Docker container
 ```shell
+; cp .env.worker.example .env.worker.docker
+# edit .env.worker.docker
 ; docker compose -f docker-compose-worker.yaml up -d
 ```
 This will run Worker, which will connect to the Master node if it is available.
@@ -66,5 +70,5 @@ This will run Worker, which will connect to the Master node if it is available.
 ; python3 -m venv .venv
 ; source .venv/bin/activate
 ; pip install -r requirements.txt
-; MASTER_URL="http://<master_url>" python server.py
+; MASTER_URL=<url of master instance> API_KEY=<your api key> python server.py
 ```

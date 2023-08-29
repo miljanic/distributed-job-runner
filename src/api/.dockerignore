@@ -1,0 +1,16 @@
+docker-compose-prod.yml
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+.git
+.github
+.gitignore
+
+public
+djb_api/.env
+djb_api/*.db
+__pycache__
+
+.vscode
+.editorconfig

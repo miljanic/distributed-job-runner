@@ -212,7 +212,6 @@ celerybeat.pid
 *.sage.py
 
 # Environments
-.env
 .venv
 env/
 venv/
@@ -284,3 +283,7 @@ tags
 
 # End of https://www.toptal.com/developers/gitignore/api/python,intellij+all,vim
 .DS_Store
+
+
+.env.*
+!.env.*.example

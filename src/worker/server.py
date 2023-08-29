@@ -4,6 +4,7 @@ import json
 import os
 import stat
 import subprocess  # nosec
+import tempfile
 import time
 from abc import ABCMeta, abstractmethod
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -12,14 +13,14 @@ from threading import Thread
 import docker
 import socketio
 
-MASTER_URL: str = os.getenv("MASTER_URL", "http://localhost:8080")
+MASTER_URL: str = os.getenv("MASTER_URL", "http://localhost:8000")
 sio = socketio.AsyncClient()
 
 
 class Job(metaclass=ABCMeta):
     def __init__(self, job_data: dict):
         self.job_data = job_data
-        self.job_id = job_data["job_id"]
+        self.id = job_data["id"]
 
     @abstractmethod
     def stream_logs(self):
@@ -74,7 +75,12 @@ class HostJob(Job):
             time.sleep(1)
 
     def run(self):
-        with open(f"/tmp/script-{self.job_id}.sh", mode="w") as script:  # nosec
+        job_dir_path: str = tempfile.mkdtemp(
+            suffix=str(self.id),
+        )
+        with open(
+            os.path.join(job_dir_path, f"script-{self.id}.sh"), mode="w"
+        ) as script:  # nosec
             script.writelines(
                 "%s\n" % line for line in self.job_data["command"].splitlines()
             )
@@ -85,7 +91,7 @@ class HostJob(Job):
         print(f"Script prepared, {script_path}")
 
         self.__process = subprocess.Popen(  # nosec
-            f"bash {script_path}",
+            f"cd {job_dir_path} && bash {script_path}",
             shell=True,
             text=True,
             encoding="UTF-8",
@@ -129,10 +135,9 @@ class DockerJob(Job):
 
     def run(self):
         client = docker.from_env()
-        # TODO run image from job config
         self.__container = client.containers.run(
-            "alpine:latest",
-            command="sh -c 'echo FIRST && echo SECOND && sleep 5 && echo THIRD'",
+            self.job_data["image"],
+            command=self.job_data["command"],
             detach=True,
         )
 
@@ -147,9 +152,9 @@ class InvalidJobData(Exception):
 class JobFactory:
     @staticmethod
     def make_job(job_data: dict):
-        if job_data["run_type"] == "HOST":
+        if job_data["run_type"] == "host":
             return HostJob(job_data=job_data)
-        elif job_data["run_type"] == "DOCKER":
+        elif job_data["run_type"] == "docker":
             return DockerJob(job_data=job_data)
         else:
             raise InvalidJobData()
@@ -172,12 +177,12 @@ async def disconnect():
 async def new_job(data):
     job_data = json.loads(data)
     job: Job = JobFactory.make_job(job_data=job_data)
-    print(f"New job available: {job.job_id}")
+    print(f"New job available: {job.id}")
     jobs.append(job)
 
 
 async def poll_jobs() -> None:
-    for _ in range(1, 2):
+    while True:
         print("Polling for jobs...")
         await sio.emit("job_poll")
         await asyncio.sleep(5)
@@ -185,7 +190,6 @@ async def poll_jobs() -> None:
 
 def work(job: Job) -> None:
     async def __execute() -> None:
-        # TODO run new docker container or subprocess
         job.run()
 
         while True:
@@ -194,14 +198,18 @@ def work(job: Job) -> None:
             print("work.while.process_output - ", process_output)
 
             if process_output != "":
-                await sio.emit(
-                    "logs_message", {"job": job.job_id, "logs": process_output}
-                )
+                await sio.emit("logs_message", {"job": job.id, "logs": process_output})
 
             if job.is_finished():
                 return_code = job.return_code()
+                print(f"RETURN CODE: {return_code}")
                 await sio.emit(
-                    "job_finished", {"job": job.job_id, "return_code": return_code}
+                    "job_finished",
+                    {
+                        "job_id": job.id,
+                        "return_code": return_code,
+                        "status": "SUCCESS" if str(return_code) == "0" else "FAIL",
+                    },
                 )
                 break
 
@@ -211,15 +219,15 @@ def work(job: Job) -> None:
     loop.run_until_complete(__execute())
 
 
-def finished_callback(job_id: str, futures: dict[str, Future]) -> callable:
+def finished_callback(id: str, futures: dict[str, Future]) -> callable:
     def callback(fn) -> None:
         print(f"JOBS: {jobs}")
-        print(f"JOB_ID: {job_id}")
+        print(f"JOB_ID: {id}")
 
-        index = next((i for i, job in enumerate(jobs) if job.job_id == job_id), -1)
+        index = next((i for i, job in enumerate(jobs) if job.id == id), -1)
         del jobs[index]
-        del futures[job_id]
-        print(f"Job {job_id} done, or failed.")
+        del futures[id]
+        print(f"Job {id} done, or failed.")
 
     return callback
 
@@ -231,20 +239,18 @@ async def job_worker_initializer() -> None:
 
     while True:
         new_jobs = {
-            job.job_id: pool.submit(work, job)
-            for job in jobs
-            if job.job_id not in futures
+            job.id: pool.submit(work, job) for job in jobs if job.id not in futures
         }
         print(f"NEW {new_jobs}")
         futures.update(new_jobs)
-        for job_id, future in new_jobs.items():
-            future.add_done_callback(finished_callback(job_id=job_id, futures=futures))
+        for id, future in new_jobs.items():
+            future.add_done_callback(finished_callback(id=id, futures=futures))
 
         await asyncio.sleep(3)
 
 
 async def main():
-    await sio.connect(url=MASTER_URL, auth={"api_key": "tmp-api-key"})
+    await sio.connect(url=MASTER_URL, auth={"api_key": os.getenv("API_KEY")})
     await asyncio.gather(poll_jobs(), job_worker_initializer())
 
     await sio.wait()

@@ -7,8 +7,9 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      MASTER_URL: "http://master:8000"
       PYTHONUNBUFFERED: no
+    env_file:
+      - .env.worker.docker
     volumes:
       - type: bind
         source: ./src/worker
