@@ -18,7 +18,7 @@ MASTER_URL: str = os.getenv("MASTER_URL", "http://localhost:8000")
 sio = socketio.AsyncClient()
 logger = logging.getLogger()
 LOG_LEVEL = os.getenv("LOG_LEVEL", logging.DEBUG)
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+logging.basicConfig(level=LOG_LEVEL, format="%(message)s")
 
 
 class Job(metaclass=ABCMeta):
@@ -133,13 +133,19 @@ class DockerJob(Job):
 
     def __save_logs(self):
         has_new_logs: bool = False
-        for line in self.__container.logs(timestamps=True, stream=True):
-            has_new_logs = True
-            self.__saved_logs = f"{self.__saved_logs}\n{line.decode('utf-8')}".strip()
-            if self.__is_run_finished():
+        while True:
+            for line in self.__container.logs(timestamps=True, stream=True):
+                has_new_logs = True
+                self.__saved_logs = (
+                    f"{self.__saved_logs}\n{line.decode('utf-8')}".strip()
+                )
+                if self.__is_run_finished():
+                    self.__logs_streamed = True
+            if not has_new_logs and self.__is_run_finished():
                 self.__logs_streamed = True
-        if not has_new_logs and self.__is_run_finished():
-            self.__logs_streamed = True
+            if self.__logs_streamed:
+                break
+            has_new_logs = False
 
     def run(self):
         client = docker.from_env()
