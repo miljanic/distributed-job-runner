@@ -24,7 +24,7 @@ function Job() {
   }, [id]);
 
   useEffect(() => {
-    if (job && job.status === "RUNNING") {
+    if (job && ["RUNNING", "PENDING"].includes(job.status)) {
       const interval = setInterval(() => {
         getJob(id)
       }, 2000);

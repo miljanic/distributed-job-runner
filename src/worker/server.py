@@ -1,6 +1,7 @@
 import asyncio
 import fcntl
 import json
+import logging
 import os
 import stat
 import subprocess  # nosec
@@ -15,6 +16,9 @@ import socketio
 
 MASTER_URL: str = os.getenv("MASTER_URL", "http://localhost:8000")
 sio = socketio.AsyncClient()
+logger = logging.getLogger()
+LOG_LEVEL = os.getenv("LOG_LEVEL", logging.DEBUG)
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 
 class Job(metaclass=ABCMeta):
@@ -88,7 +92,7 @@ class HostJob(Job):
 
         current_permissions = stat.S_IMODE(os.stat(script_path).st_mode)
         os.chmod(script_path, current_permissions | stat.S_IXUSR | stat.S_IXGRP)
-        print(f"Script prepared, {script_path}")
+        logger.debug(f"Script prepared, {script_path}")
 
         self.__process = subprocess.Popen(  # nosec
             f"cd {job_dir_path} && bash {script_path}",
@@ -98,7 +102,7 @@ class HostJob(Job):
             stderr=subprocess.PIPE,
             stdout=subprocess.PIPE,
         )
-        print("Subprocess started")
+        logger.debug("Subprocess started")
 
         self.__checking_thread = Thread(target=self.__check_process)
         self.__checking_thread.start()
@@ -128,10 +132,14 @@ class DockerJob(Job):
         return self.__container.wait()["StatusCode"]
 
     def __save_logs(self):
+        has_new_logs: bool = False
         for line in self.__container.logs(timestamps=True, stream=True):
+            has_new_logs = True
             self.__saved_logs = f"{self.__saved_logs}\n{line.decode('utf-8')}".strip()
             if self.__is_run_finished():
                 self.__logs_streamed = True
+        if not has_new_logs and self.__is_run_finished():
+            self.__logs_streamed = True
 
     def run(self):
         client = docker.from_env()
@@ -165,25 +173,25 @@ jobs: list[Job] = []
 
 @sio.event
 async def connect():
-    print("Connected to the Master")
+    logger.info("Connected to the Master")
 
 
 @sio.event
 async def disconnect():
-    print("Disconnected from the Master")
+    logger.info("Disconnected from the Master")
 
 
 @sio.event
 async def new_job(data):
     job_data = json.loads(data)
     job: Job = JobFactory.make_job(job_data=job_data)
-    print(f"New job available: {job.id}")
+    logger.info(f"New job available: {job.id}")
     jobs.append(job)
 
 
 async def poll_jobs() -> None:
     while True:
-        print("Polling for jobs...")
+        logger.debug("Polling for jobs...")
         await sio.emit("job_poll")
         await asyncio.sleep(5)
 
@@ -195,14 +203,14 @@ def work(job: Job) -> None:
         while True:
             process_output = job.stream_logs()
 
-            print("work.while.process_output - ", process_output)
+            logger.debug(f"work.while.process_output - {process_output}")
 
             if process_output != "":
                 await sio.emit("logs_message", {"job": job.id, "logs": process_output})
 
             if job.is_finished():
                 return_code = job.return_code()
-                print(f"RETURN CODE: {return_code}")
+                logger.debug(f"RETURN CODE: {return_code}")
                 await sio.emit(
                     "job_finished",
                     {
@@ -221,13 +229,13 @@ def work(job: Job) -> None:
 
 def finished_callback(id: str, futures: dict[str, Future]) -> callable:
     def callback(fn) -> None:
-        print(f"JOBS: {jobs}")
-        print(f"JOB_ID: {id}")
+        logger.debug(f"JOBS: {jobs}")
+        logger.debug(f"JOB_ID: {id}")
 
         index = next((i for i, job in enumerate(jobs) if job.id == id), -1)
         del jobs[index]
         del futures[id]
-        print(f"Job {id} done, or failed.")
+        logger.info(f"Job {id} done, or failed.")
 
     return callback
 
@@ -241,7 +249,7 @@ async def job_worker_initializer() -> None:
         new_jobs = {
             job.id: pool.submit(work, job) for job in jobs if job.id not in futures
         }
-        print(f"NEW {new_jobs}")
+        logger.debug(f"NEW {new_jobs}")
         futures.update(new_jobs)
         for id, future in new_jobs.items():
             future.add_done_callback(finished_callback(id=id, futures=futures))
